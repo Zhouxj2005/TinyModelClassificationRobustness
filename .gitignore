@@ -1,0 +1,24 @@
+# datasets
+data/
+dataset/
+datasets/
+
+# outputs & logs
+outputs/
+logs/
+runs/
+wandb/
+
+# checkpoints
+*.pth
+*.pt
+*.ckpt
+
+# cache
+*.npy
+*.npz
+__pycache__/
+.cache/
+
+# OS
+.DS_Store
