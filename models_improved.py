@@ -76,9 +76,27 @@ class ResNetRobustBench(nn.Module):
         
         out = F.avg_pool2d(out, 4)
         feat = out.view(out.size(0), -1) # [Batch, 512] -> 这是我们要的特征
-        out = self.linear(feat)
-        return out
+        logits = self.linear(feat)
+        return logits, feat  # <--- 返回 Tuple
 
+# 针对 MobileNetV2 (Student) 的修改
+# 我们通常需要重写一下 torchvision 的 mobilenet forward
+class MobileNetV2_CIFAR(nn.Module):
+    def __init__(self, num_classes=100):
+        super(MobileNetV2_CIFAR, self).__init__()
+        self.net = models.mobilenet_v2(pretrained=False)
+        # 修改第一层
+        self.net.features[0][0] = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=False)
+        # 修改分类器
+        self.net.classifier[1] = nn.Linear(self.net.classifier[1].in_features, num_classes)
+
+    def forward(self, x):
+        # 提取特征
+        out = self.net.features(x)
+        out = nn.functional.adaptive_avg_pool2d(out, (1, 1))
+        feat = torch.flatten(out, 1) # [Batch, 1280]
+        logits = self.net.classifier(feat)
+        return logits, feat # <--- 返回 Tuple
 # ==========================================
 # 2. 模型工厂
 # ==========================================
@@ -97,16 +115,6 @@ class NormalizedModel(nn.Module):
     def forward(self, x):
         x = (x - self.mu) / self.sigma
         return self.model(x)
-
-    def __getattr__(self, name):
-        """
-        透明地委托未知属性到内部的实际模型。
-        这样上层代码可以直接访问例如 `features`、`classifier`、`fc` 等属性。
-        """
-        try:
-            return super().__getattr__(name)
-        except AttributeError:
-            return getattr(self.model, name)
 
 
 def get_model(name, num_classes=100):
@@ -139,12 +147,8 @@ def get_model(name, num_classes=100):
         model.fc = nn.Linear(model.fc.in_features, num_classes)
         
     elif name == 'mobilenet_v2':
-        model = models.mobilenet_v2(pretrained=False)
-        
-        # MobileNetV2 的第一层在 features[0][0]
-        # 原版: Conv2d(3, 32, kernel_size=3, stride=2, padding=1, bias=False)
-        # 修改为 stride=1，保留分辨率
-        model.features[0][0] = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=False)
+        model = MobileNetV2_CIFAR(num_classes)
+        return NormalizedModel(model) # 包装
         
         # 修改分类器
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)

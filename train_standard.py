@@ -6,15 +6,16 @@ import torchvision.transforms as transforms
 import argparse
 import os
 import time
+import csv
 from models import get_model # 导入咱们刚才写的模型工厂
 
 # --- 配置参数 ---
 parser = argparse.ArgumentParser(description='Standard Training on CIFAR-100')
 parser.add_argument('--model', default='mobilenet_v2', type=str, help='model name: mobilenet_v2 | resnet18')
-parser.add_argument('--epochs', default=100, type=int, help='number of epochs')
+parser.add_argument('--epochs', default=200, type=int, help='number of epochs')
 parser.add_argument('--lr', default=0.1, type=float, help='initial learning rate')
 parser.add_argument('--batch_size', default=128, type=int, help='batch size')
-parser.add_argument('--save_dir', default='./checkpoints', type=str, help='directory to save checkpoints')
+parser.add_argument('--save_dir', default='./checkpoint', type=str, help='directory to save checkpoints')
 args = parser.parse_args()
 
 def train():
@@ -55,6 +56,13 @@ def train():
     # 使用余弦退火学习率，训练后期收敛更稳
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
+    log_path = os.path.join(args.save_dir, f'{args.model}_{args.epochs}_{args.lr}_standard_log.csv')
+    with open(log_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        # 写入表头
+        writer.writerow(['epoch', 'loss', 'clean_acc', 'time'])
+    print(f"日志将保存至: {log_path}")
+    
     # 5. 训练循环
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
@@ -95,13 +103,19 @@ def train():
 
         acc = 100. * test_correct / test_total
         scheduler.step() # 更新学习率
-        
+
+        avg_loss = train_loss / (batch_idx + 1)
         epoch_time = time.time() - start_time
         print(f"Epoch {epoch+1}/{args.epochs} | Time: {epoch_time:.1f}s | "
               f"Loss: {train_loss/(batch_idx+1):.3f} | "
               f"Train Acc: {100.*correct/total:.2f}% | "
               f"Test Acc: {acc:.2f}%")
 
+        with open(log_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([epoch+1, avg_loss, acc, epoch_time])
+        # -----------------------
+        
         # 保存最佳模型
         if acc > best_acc:
             print(f"Found new best model! ({best_acc:.2f}% -> {acc:.2f}%) Saving...")
@@ -111,7 +125,7 @@ def train():
                 'acc': acc,
                 'epoch': epoch,
             }
-            save_path = os.path.join(args.save_dir, f'{args.model}_standard.pth')
+            save_path = os.path.join(args.save_dir, f'{args.model}_{args.epochs}_{args.lr}_standard.pth')
             torch.save(state, save_path)
 
     print(f"=== 训练结束. Best Clean Accuracy: {best_acc:.2f}% ===")
